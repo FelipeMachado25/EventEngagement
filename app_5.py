@@ -10,7 +10,7 @@ from supabase import create_client
 
 # ── CONFIG ───────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Event Engagement System | EY Wavespace",
+    page_title="Event Engagement System | EY wavespace",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
