@@ -1,7 +1,7 @@
 streamlit
 pandas
 plotly
-anthropic
+groq
 openpyxl
 matplotlib
 supabase
