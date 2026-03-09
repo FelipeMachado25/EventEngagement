@@ -1,5 +1,5 @@
 # Event Engagement System
-**EY wavespace Pilot · IE University Thesis 2026**
+**IE University Thesis 2026**
 
 A Streamlit app for analyzing event engagement data from Microsoft Forms surveys. Built as part of the thesis *"From Experience to Economic Value: A Framework to Translate Experiential Marketing into Managerial Metrics — The Case of Red Bull"*.
 
