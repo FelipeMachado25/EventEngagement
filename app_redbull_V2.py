@@ -295,36 +295,92 @@ def convert_text_to_num(df, col_map):
             numeric[q] = df[col].map(lambda x: TEXT_TO_NUM.get(str(x).strip(), None))
     return pd.DataFrame(numeric)
 
+def build_cx_context(driver_means, corrs, ee_bei, eng_score):
+    """Build structured CX context for the advisory prompt."""
+    sorted_drivers = sorted(driver_means.items(), key=lambda x: x[1], reverse=True)
+    strongest = sorted_drivers[:2]
+    weakest = sorted_drivers[-2:]
+    avg = sum(driver_means.values()) / len(driver_means)
+    above = [(k,v) for k,v in driver_means.items() if v >= avg]
+    below = [(k,v) for k,v in driver_means.items() if v < avg]
+    best_corr = max(corrs.items(), key=lambda x: x[1]) if corrs else None
+    worst_corr = min(corrs.items(), key=lambda x: x[1]) if corrs else None
+    score_band = "EXCEPTIONAL" if eng_score >= 6.5 else "STRONG" if eng_score >= 5.5 else "MODERATE" if eng_score >= 4.5 else "WEAK"
+    return {
+        "strongest": strongest,
+        "weakest": weakest,
+        "above_avg": above,
+        "below_avg": below,
+        "best_corr": best_corr,
+        "worst_corr": worst_corr,
+        "score_band": score_band,
+        "avg_driver": round(avg, 2)
+    }
+
 def generate_advisory(api_key, event_name, event_type, driver_means, corrs, ee_bei, eng_score):
     client = Groq(api_key=api_key)
-    drivers_text = "\n".join([f"- {k}: {v}/7" for k, v in driver_means.items()])
-    corrs_text = "\n".join([f"- {k} → EE: {v}" for k, v in corrs.items()])
-    prompt = f"""You are a senior brand strategist specializing in experiential marketing for high-performance brands like Red Bull.
+    ctx = build_cx_context(driver_means, corrs, ee_bei, eng_score)
 
-Analyze this event engagement data for a Red Bull event and provide a concise, strategic advisory.
+    drivers_text = "\n".join([f"  {k}: {v}/7 ({'▲ above avg' if v >= ctx['avg_driver'] else '▼ below avg'})" for k, v in sorted(driver_means.items(), key=lambda x: x[1], reverse=True)])
+    corrs_text = "\n".join([f"  {k}: r={v} ({'strong predictor' if v >= 0.7 else 'moderate' if v >= 0.4 else 'weak predictor'})" for k, v in sorted(corrs.items(), key=lambda x: x[1], reverse=True)])
 
-EVENT: {event_name}
-TYPE: {event_type}
-OVERALL ENGAGEMENT SCORE: {eng_score}/7 ({round(eng_score/7*100,1)}%)
+    prompt = f"""You are a senior CX strategist and brand advisor specializing in experiential marketing for high-performance brands like Red Bull. You think in data, speak in insights, and give recommendations that are tangible and executable.
 
-DRIVER SCORES:
+Analyze the following post-event engagement data and produce a structured CX advisory report.
+
+═══════════════════════════════════
+EVENT BRIEF
+═══════════════════════════════════
+Event: {event_name}
+Type: {event_type}
+Overall Engagement Score: {eng_score}/7 — {ctx['score_band']} ({round(eng_score/7*100,1)}% of maximum)
+Avg driver score: {ctx['avg_driver']}/7
+
+═══════════════════════════════════
+DRIVER PERFORMANCE (ranked)
+═══════════════════════════════════
 {drivers_text}
 
-DRIVER → EMOTIONAL ENGAGEMENT CORRELATIONS:
+═══════════════════════════════════
+PREDICTIVE CORRELATIONS → Emotional Engagement
+═══════════════════════════════════
 {corrs_text}
 
-EE → BEI CORRELATION: {ee_bei}
+EE → BEI (emotional to behavioral conversion): r={ee_bei}
+Interpretation: {("High conversion — people who felt engaged also said they would come back/recommend") if ee_bei and ee_bei >= 0.7 else ("Moderate conversion") if ee_bei and ee_bei >= 0.4 else ("Low conversion — engagement not translating into behavioral intent")}
 
-Write a structured advisory with exactly these 4 sections:
-1. OVERALL ASSESSMENT — what this score means for a Red Bull event at this scale
-2. STRENGTHS — the top 2 drivers and why they matter for Red Bull's brand strategy
-3. AREAS FOR IMPROVEMENT — the weakest driver with 2-3 specific, tangible Red Bull-relevant recommendations
-4. STRATEGIC INSIGHT — one sharp insight about what the correlation data reveals about how Red Bull converts experience into behavior
+═══════════════════════════════════
+Write a structured CX advisory report with EXACTLY these 5 sections.
+Use the actual numbers throughout. Be sharp and direct. No academic language.
+Total length: 350-400 words.
+═══════════════════════════════════
 
-Be direct. Reference the actual numbers. Under 280 words. No fluff."""
+## 🎯 OVERALL VERDICT
+One punchy sentence summarizing what this score means for a {event_type} event at Red Bull's level. 
+Then 2 sentences on what the data says about the experience as a whole.
+
+## ✅ WHAT WORKED
+Name the top 2 performing drivers with their scores.
+For each: explain WHY it worked in the context of this specific event type, and what it means for the brand.
+Be specific — reference the event type and Red Bull's positioning.
+
+## ⚠️ DAMAGE REPORT
+Name the bottom 2 drivers with their scores.
+For each: explain the consequence of underperformance (not just "it was low" — what does a low score here actually cost Red Bull?).
+Give 1 concrete, tangible fix for each — something a Trade Marketing Manager can execute in the next edition.
+
+## 📊 DATA INSIGHT
+Explain what the correlation data reveals. Which driver is the strongest predictor of emotional engagement (r={ctx['best_corr'][1] if ctx['best_corr'] else 'N/A'})?
+What does the EE→BEI score of r={ee_bei} tell us about whether this event converted experience into behavior?
+Speak plainly — what should the team do differently based on this?
+
+## 🔁 NEXT EDITION PRIORITIES
+3 bullet points. Prioritized by impact. Specific and actionable.
+Format: [DRIVER] — [specific action] — [expected outcome]"""
+
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
-        max_tokens=600,
+        max_tokens=900,
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
